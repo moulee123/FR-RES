@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FRÈRES</string>
+    <string name="accessibility_service_description">FRÈRES detects when selected apps are launched during study sessions and displays a blocking screen.</string>
+</resources>

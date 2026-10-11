@@ -794,7 +794,7 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Current Location: ${prefs.lastTravelLocationName}", color = TextWhite, style = MaterialTheme.typography.labelMedium)
                         if (isConfirmed) {
-                            Text("Next check required in $timeRemaining", color = git statusTextDimmed, style = MaterialTheme.typography.labelSmall)
+                            Text("Next check required in $timeRemaining", color = TextDimmed, style = MaterialTheme.typography.labelSmall)
                         } else if (isOverdue) {
                             Text("Verification expired. Limits restored.", color = WarningGold, style = MaterialTheme.typography.labelSmall)
                         }

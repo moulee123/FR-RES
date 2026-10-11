@@ -82,7 +82,6 @@ fun HomeScreen(
     onEndBreak: () -> Unit,
     onToggleBlockedApp: (String, Boolean) -> Unit,
     onNavigateToSchedule: () -> Unit,
-    onNavigateToStats: () -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
     var showAppSelector by remember { mutableStateOf(false) }
@@ -407,7 +406,9 @@ fun HomeScreen(
         }
 
         // Upcoming Schedule Card
-        AppCard {
+        AppCard(
+            modifier = Modifier.clickable { onNavigateToSchedule() }
+        ) {
             val nextScheduleInfo = remember(studySchedules) {
                 val nowMs = System.currentTimeMillis()
                 val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
@@ -531,7 +532,6 @@ fun HomeScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(BlueAccent.copy(alpha = 0.18f))
-                            .clickable { onNavigateToSchedule() }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Text(
@@ -695,61 +695,6 @@ fun HomeScreen(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // Today's Focus Statistics Summary
-        AppCard(
-            modifier = Modifier.clickable { onNavigateToStats() }
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    SectionEyebrow("TODAY'S SUMMARY")
-                }
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = "View Analytics",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LavenderPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    Text(
-                        text = "2h 18m",
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-                    Text(
-                        text = "Total Focus Screen Time",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextMuted
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(LimeAccent.copy(alpha = 0.18f))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "↓ 38m saved today",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LimeAccent,
-                        fontWeight = FontWeight.Bold
-                    )
                 }
             }
         }

@@ -241,26 +241,6 @@ fun FocusControlAppMainContent() {
                     }
                 )
             }
-            showScheduleList -> {
-                ScheduleScreen(
-                    schedules = studySchedules,
-                    onAddSchedule = {
-                        editingSchedule = null
-                        showScheduleEditor = true
-                    },
-                    onEditSchedule = { schedule ->
-                        editingSchedule = schedule
-                        showScheduleEditor = true
-                    },
-                    onToggleSchedule = { schedule, enabled ->
-                        val updated = schedule.copy(isEnabled = enabled)
-                        prefs.saveStudySchedule(updated)
-                        studySchedules = prefs.studySchedules
-                        ScheduleManager.rescheduleAll(context, studySchedules)
-                    },
-                    onBack = { showScheduleList = false }
-                )
-            }
             showScheduleEditor -> {
                 ScheduleEditorScreen(
                     initialSchedule = editingSchedule,
@@ -281,7 +261,27 @@ fun FocusControlAppMainContent() {
                     onCancel = {
                         showScheduleEditor = false
                         editingSchedule = null
+                    }
+                )
+            }
+            showScheduleList -> {
+                ScheduleScreen(
+                    schedules = studySchedules,
+                    onAddSchedule = {
+                        editingSchedule = null
+                        showScheduleEditor = true
                     },
+                    onEditSchedule = { schedule ->
+                        editingSchedule = schedule
+                        showScheduleEditor = true
+                    },
+                    onToggleSchedule = { schedule, enabled ->
+                        val updated = schedule.copy(isEnabled = enabled)
+                        prefs.saveStudySchedule(updated)
+                        studySchedules = prefs.studySchedules
+                        ScheduleManager.rescheduleAll(context, studySchedules)
+                    },
+                    onBack = { showScheduleList = false }
                 )
             }
             showAllowanceEditor -> {
@@ -363,10 +363,9 @@ fun FocusControlAppMainContent() {
                                             blockedPackages = prefs.blockedPackageNames
                                         },
                                         onNavigateToSchedule = {
+                                            editingSchedule = null
+                                            showScheduleEditor = false
                                             showScheduleList = true
-                                        },
-                                        onNavigateToStats = {
-                                            currentDestination = MainNavDestination.STATS
                                         },
                                         onNavigateToSettings = {
                                             currentDestination = MainNavDestination.SETTINGS

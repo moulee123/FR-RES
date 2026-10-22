@@ -55,8 +55,7 @@ import com.example.focuscontrol.FocusBlockerService
 import com.example.focuscontrol.FocusPreferences
 import com.example.focuscontrol.ScheduleManager
 import com.example.focuscontrol.ScheduleReceiver
-import com.example.focuscontrol.admin.DeviceOwnerHelper
-import com.example.focuscontrol.admin.DeviceOwnerStatus
+
 import com.example.focuscontrol.ui.components.AppCard
 import com.example.focuscontrol.ui.components.LogoWordmark
 import com.example.focuscontrol.ui.components.SectionEyebrow
@@ -72,6 +71,9 @@ import com.example.focuscontrol.ui.theme.TextWhite
 import com.example.focuscontrol.ui.theme.WarningGold
 import com.example.focuscontrol.utils.LocationVerificationHelper
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.example.focuscontrol.utils.TravelEligibility
+
 @Composable
 fun SettingsScreen(
     context: Context,
@@ -85,7 +87,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 16.dp, bottom = 100.dp),
+            .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Header
@@ -307,75 +309,6 @@ fun SettingsScreen(
             }
         }
 
-        // Device Owner & Uninstall Protection Card
-        AppCard {
-            SectionEyebrow("DEVICE OWNER & UNINSTALL PROTECTION")
-            Spacer(Modifier.height(8.dp))
-            val doStatus = DeviceOwnerHelper.getDeviceOwnerStatus(context)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Device Owner Protection",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = when (doStatus) {
-                            DeviceOwnerStatus.ENFORCED ->
-                                "Active • Hardware-level uninstall protection is enforced by Device Owner policy."
-                            DeviceOwnerStatus.PROVISIONED_POLICY_PENDING ->
-                                "Pending • App is Device Owner, but uninstall protection policy is not yet confirmed active."
-                            DeviceOwnerStatus.NOT_PROVISIONED ->
-                                "Inactive • App running in normal installation mode. Uninstall protection requires Device Owner provisioning."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextMuted
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            when (doStatus) {
-                                DeviceOwnerStatus.ENFORCED -> LimeAccent.copy(alpha = 0.2f)
-                                else -> WarningGold.copy(alpha = 0.2f)
-                            }
-                        )
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = when (doStatus) {
-                            DeviceOwnerStatus.ENFORCED -> "ENFORCED"
-                            DeviceOwnerStatus.PROVISIONED_POLICY_PENDING -> "PENDING"
-                            DeviceOwnerStatus.NOT_PROVISIONED -> "INACTIVE"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when (doStatus) {
-                            DeviceOwnerStatus.ENFORCED -> LimeAccent
-                            else -> WarningGold
-                        },
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "• Normal Installation Mode: Standard permissions (Accessibility & Exact Alarms) manage focus sessions and app allowances, but CANNOT prevent app uninstallation.\n\n" +
-                        "• Device Owner Mode: Grants hardware-level anti-uninstall protection via setUninstallBlocked(). Activation requires provisioning a newly reset device via ADB (`adb shell dpm set-device-owner ...`) or QR code.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextMuted
-            )
-        }
-
         // Section 11: SYSTEM DIAGNOSTICS CARD
         AppCard {
             SectionEyebrow("SYSTEM DIAGNOSTICS & RUNTIME STATUS")
@@ -394,7 +327,6 @@ fun SettingsScreen(
             } else "N/A"
             val canFullScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) notificationManager.canUseFullScreenIntent() else true
             val canDrawOverlays = Settings.canDrawOverlays(context)
-            val isDeviceOwner = DeviceOwnerHelper.isDeviceOwner(context)
             val isInteractive = powerManager.isInteractive
             val isKeyguardLocked = keyguardManager.isKeyguardLocked
             val nowMs = System.currentTimeMillis()
@@ -411,7 +343,6 @@ fun SettingsScreen(
                         "• Break Channel Importance: $breakChannelImportance\n" +
                         "• canUseFullScreenIntent(): $canFullScreen\n" +
                         "• canDrawOverlays (Appear on Top): $canDrawOverlays\n" +
-                        "• Device Owner Status: $isDeviceOwner\n" +
                         "• Accessibility Service Active: $isServiceEnabled\n" +
                         "• Screen Currently Interactive: $isInteractive\n" +
                         "• Device Keyguard Locked: $isKeyguardLocked\n" +
@@ -486,7 +417,7 @@ fun SettingsScreen(
         }
 
         val prefs = remember { FocusPreferences(context) }
-        var isHomeVerified by remember { mutableStateOf(prefs.isHomeVerified) }
+        var isHomeLocationSet by remember { mutableStateOf(prefs.isHomeLocationSet) }
         var isFetchingHomeLoc by remember { mutableStateOf(false) }
         var homeLocError by remember { mutableStateOf<String?>(null) }
 
@@ -494,17 +425,18 @@ fun SettingsScreen(
         var showHomeConfirmDialog by remember { mutableStateOf(false) }
         var pendingHomeLoc by remember { mutableStateOf<Location?>(null) }
         var pendingHomeName by remember { mutableStateOf("") }
-        var pendingRadiusKm by remember { mutableStateOf(prefs.homeRadiusKm) }
 
-        var travelModeEnabled by remember { mutableStateOf(prefs.isTravelModeEnabled) }
-        val isConfirmed = remember(prefs.lastTravelConfirmationTimeMs, prefs.isHomeVerified) { prefs.isTravelModeConfirmed() }
-        val isOverdue = remember(prefs.lastTravelConfirmationTimeMs, prefs.isHomeVerified) { prefs.isTravelConfirmationOverdue() }
+        // Travel Mode Activation & Eligibility Dialogs
+        var activeTravelMode by remember { mutableStateOf(prefs.activeTravelMode) }
         var isVerifyingTravel by remember { mutableStateOf(false) }
-        var verificationResult by remember { mutableStateOf<String?>(null) }
+        var travelMessageDialogTitle by remember { mutableStateOf<String?>(null) }
+        var travelMessageDialogText by remember { mutableStateOf<String?>(null) }
+        var pendingTravelActivationMode by remember { mutableStateOf<String?>(null) }
+        var pendingTravelActivationDetails by remember { mutableStateOf<String?>(null) }
 
         // 1. Home Location Setup Card
         AppCard {
-            SectionEyebrow("HOME LOCATION SETUP")
+            SectionEyebrow("HOME LOCATION SETUP (PART 1)")
             Spacer(Modifier.height(8.dp))
 
             Row(
@@ -520,35 +452,35 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    if (isHomeVerified) LimeAccent.copy(alpha = 0.2f)
+                                    if (isHomeLocationSet) LimeAccent.copy(alpha = 0.2f)
                                     else WarningGold.copy(alpha = 0.2f)
                                 )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = if (isHomeVerified) "VERIFIED" else "SETUP REQUIRED",
+                                text = if (isHomeLocationSet) "SAVED & LOCKED" else "SETUP REQUIRED",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isHomeVerified) LimeAccent else WarningGold
+                                color = if (isHomeLocationSet) LimeAccent else WarningGold
                             )
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    if (isHomeVerified) {
+                    if (isHomeLocationSet) {
                         Text(
-                            text = "${prefs.homeLocationName} (${prefs.homeRadiusKm.toInt()} km radius)",
+                            text = "${prefs.homeLocationName} 🔒",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = TextWhite
                         )
                         Text(
-                            text = "Coords: ${String.format(Locale.getDefault(), "%.4f, %.4f", prefs.homeLatitude, prefs.homeLongitude)}",
+                            text = "Coords: ${String.format(Locale.getDefault(), "%.4f, %.4f", prefs.homeLatitude, prefs.homeLongitude)} • Permanent Reference Point",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextMuted
                         )
                     } else {
                         Text(
-                            text = "Travel Mode requires a verified home location to determine when you are traveling. Acquire your current location to set your home region.",
+                            text = "Set your permanent home location as the reference point for Travel Mode verification.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextMuted
                         )
@@ -558,43 +490,66 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            if (isFetchingHomeLoc) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LavenderPrimary, strokeWidth = 2.dp)
-                    Text("Acquiring fresh location fix...", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
-                }
-                
-                LaunchedEffect(Unit) {
-                    LocationVerificationHelper.getCurrentLocationFix(context) { location, statusMsg ->
-                        isFetchingHomeLoc = false
-                        if (location != null) {
-                            val name = LocationVerificationHelper.getGeocodedAddressName(context, location.latitude, location.longitude)
-                            pendingHomeLoc = location
-                            pendingHomeName = name
-                            pendingRadiusKm = prefs.homeRadiusKm
-                            homeLocError = null
-                            showHomeConfirmDialog = true
-                        } else {
-                            homeLocError = statusMsg
+            if (!isHomeLocationSet) {
+                if (isFetchingHomeLoc) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LavenderPrimary, strokeWidth = 2.dp)
+                        Text("Acquiring fresh location fix...", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
+                    }
+
+                    LaunchedEffect(Unit) {
+                        if (LocationVerificationHelper.isVpnActive(context)) {
+                            isFetchingHomeLoc = false
+                            homeLocError = "VPN detected. Turn off your VPN and verify your current device location to continue."
+                            return@LaunchedEffect
                         }
+
+                        LocationVerificationHelper.getCurrentLocationFix(context) { location, statusMsg ->
+                            isFetchingHomeLoc = false
+                            if (location != null) {
+                                if (LocationVerificationHelper.isLocationMocked(location)) {
+                                    homeLocError = "Mocked location detected. Please disable location spoofing apps to proceed."
+                                    return@getCurrentLocationFix
+                                }
+                                val name = LocationVerificationHelper.getGeocodedAddressName(context, location.latitude, location.longitude)
+                                pendingHomeLoc = location
+                                pendingHomeName = name
+                                homeLocError = null
+                                showHomeConfirmDialog = true
+                            } else {
+                                homeLocError = statusMsg
+                            }
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = { isFetchingHomeLoc = true; homeLocError = null },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = LavenderPrimary,
+                            contentColor = TextWhite
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("📍 Set Permanent Home Location", fontWeight = FontWeight.Bold)
                     }
                 }
             } else {
-                Button(
-                    onClick = { isFetchingHomeLoc = true; homeLocError = null },
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isHomeVerified) NavyCardInner else LavenderPrimary,
-                        contentColor = if (isHomeVerified) LavenderPrimary else TextWhite
-                    ),
-                    shape = RoundedCornerShape(10.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(NavyCardInner)
+                        .padding(10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (isHomeVerified) "📍 Change Home Location" else "📍 Use Current Location as Home",
-                        fontWeight = FontWeight.Bold
+                        text = "🔒 Home location is permanently saved and locked.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextDimmed
                     )
                 }
             }
@@ -610,7 +565,7 @@ fun SettingsScreen(
             AlertDialog(
                 onDismissRequest = { showHomeConfirmDialog = false },
                 title = {
-                    Text("Confirm Home Location", fontWeight = FontWeight.Bold, color = TextWhite)
+                    Text("Confirm Permanent Home Location", fontWeight = FontWeight.Bold, color = TextWhite)
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -626,37 +581,11 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = TextDimmed
                         )
-                        
-                        Spacer(Modifier.height(6.dp))
-                        Text("Select Home Radius:", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                        
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(15.0, 30.0, 50.0).forEach { radius ->
-                                val isSelected = pendingRadiusKm == radius
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) LavenderPrimary else NavyCardInner)
-                                        .clickable { pendingRadiusKm = radius }
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "${radius.toInt()} km",
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) TextWhite else TextMuted,
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                }
-                            }
-                        }
-
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Travel Mode will only operate when you are outside this ${pendingRadiusKm.toInt()} km radius from home.",
+                            text = "Once confirmed, this location will be saved permanently as your home reference point for Travel Mode.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted
+                            color = WarningGold
                         )
                     }
                 },
@@ -664,21 +593,15 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             val loc = pendingHomeLoc!!
-                            prefs.homeLatitude = loc.latitude
-                            prefs.homeLongitude = loc.longitude
-                            prefs.homeRadiusKm = pendingRadiusKm
-                            prefs.homeLocationName = pendingHomeName
-                            prefs.isHomeVerified = true
-                            prefs.homeVerificationTimestamp = System.currentTimeMillis()
-                            
-                            isHomeVerified = true
+                            prefs.setHomeLocation(loc.latitude, loc.longitude, pendingHomeName)
+                            isHomeLocationSet = true
                             showHomeConfirmDialog = false
                             homeLocError = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = LavenderPrimary, contentColor = TextWhite),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Confirm as Home Location", fontWeight = FontWeight.Bold)
+                        Text("Confirm Permanent Home", fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -694,10 +617,11 @@ fun SettingsScreen(
             )
         }
 
-        // 2. Travel Mode Card
+        // 2. Travel Mode Controls Card
         AppCard {
             SectionEyebrow("SPECIAL MODES")
             Spacer(Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -707,150 +631,219 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Travel Mode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = TextWhite)
                         Spacer(Modifier.width(8.dp))
-                        if (travelModeEnabled) {
+                        if (prefs.isTravelModeActive()) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        when {
-                                            !isHomeVerified -> WarningGold.copy(alpha = 0.2f)
-                                            isOverdue -> WarningGold.copy(alpha = 0.2f)
-                                            isConfirmed -> LimeAccent.copy(alpha = 0.2f)
-                                            else -> Color.Gray.copy(alpha = 0.2f)
-                                        }
-                                    )
+                                    .background(LimeAccent.copy(alpha = 0.2f))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = when {
-                                        !isHomeVerified -> "SETUP HOME FIRST"
-                                        isOverdue -> "OVERDUE"
-                                        isConfirmed -> "CONFIRMED"
-                                        else -> "PENDING"
-                                    },
+                                    text = if (prefs.isLocalTravelModeActive()) "LOCAL TRAVEL ACTIVE" else "TRAVEL MODE ACTIVE",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = when {
-                                        !isHomeVerified || isOverdue -> WarningGold
-                                        isConfirmed -> LimeAccent
-                                        else -> TextMuted
-                                    }
+                                    color = LimeAccent
                                 )
                             }
                         }
                     }
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = if (isHomeVerified) {
-                            "Suspend Study Mode limits while traveling outside ${prefs.homeLocationName} (${prefs.homeRadiusKm.toInt()} km radius). Requires 2-hour location verification."
+                        text = if (prefs.isTravelModeActive()) {
+                            "Study Mode and App Limits are suspended. Currently verified: ${prefs.lastTravelLocationName}"
                         } else {
-                            "Set and verify your home location above first before activating Travel Mode."
+                            "Automatically selects Local Travel Mode (2-30 km) or Travel Mode (> 30 km) based on your distance from home."
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextMuted
                     )
                 }
-                Spacer(Modifier.width(8.dp))
-                Switch(
-                    checked = travelModeEnabled,
-                    enabled = isHomeVerified,
-                    onCheckedChange = { isEnabled ->
-                        if (!isHomeVerified) {
-                            verificationResult = "Please set and verify your home location above first."
-                            return@Switch
-                        }
-                        travelModeEnabled = isEnabled
-                        prefs.isTravelModeEnabled = isEnabled
-                        if (!isEnabled) {
-                            prefs.lastTravelConfirmationTimeMs = 0L
-                            prefs.lastTravelLocationName = "Not Verified"
-                            verificationResult = null
-                        } else {
-                            isVerifyingTravel = true
-                        }
-                    },
-                    colors = SwitchDefaults.colors(checkedThumbColor = TextWhite, checkedTrackColor = PurpleAccent)
-                )
             }
 
-            if (travelModeEnabled && isHomeVerified) {
-                Spacer(Modifier.height(14.dp))
-                val timeRemaining = if (isConfirmed) {
-                    val remainingMs = (prefs.lastTravelConfirmationTimeMs + 2 * 60 * 60 * 1000L) - System.currentTimeMillis()
+            Spacer(Modifier.height(14.dp))
+
+            if (prefs.isTravelModeActive()) {
+                val timeRemaining = run {
+                    val remainingMs = maxOf(0L, prefs.nextLocationCheckTimeMs - System.currentTimeMillis())
                     val hours = remainingMs / (60 * 60 * 1000L)
                     val mins = (remainingMs / (60 * 1000L)) % 60
                     if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
-                } else "0m"
+                }
 
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(NavyCardInner)
                         .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Current Location: ${prefs.lastTravelLocationName}", color = TextWhite, style = MaterialTheme.typography.labelMedium)
-                        if (isConfirmed) {
-                            Text("Next check required in $timeRemaining", color = TextDimmed, style = MaterialTheme.typography.labelSmall)
-                        } else if (isOverdue) {
-                            Text("Verification expired. Limits restored.", color = WarningGold, style = MaterialTheme.typography.labelSmall)
-                        }
+                    Text("Location: ${prefs.lastTravelLocationName}", color = TextWhite, style = MaterialTheme.typography.labelMedium)
+                    Text("Next 2-hour periodic check in: $timeRemaining", color = TextDimmed, style = MaterialTheme.typography.labelSmall)
+
+                    Spacer(Modifier.height(4.dp))
+
+                    Button(
+                        onClick = {
+                            prefs.stopTravelMode()
+                            ScheduleManager.rescheduleAll(context, prefs.studySchedules)
+                            activeTravelMode = "NONE"
+                        },
+                        modifier = Modifier.fillMaxWidth().height(42.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PinkAccent.copy(alpha = 0.2f), contentColor = PinkAccent),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("End Travel Mode", fontWeight = FontWeight.Bold)
                     }
-                    
-                    if (isVerifyingTravel) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = PurpleAccent,
-                            strokeWidth = 2.dp
-                        )
-                        LaunchedEffect(Unit) {
-                            LocationVerificationHelper.checkIsOutsideHome(
-                                context = context,
-                                homeLat = prefs.homeLatitude,
-                                homeLng = prefs.homeLongitude,
-                                homeRadiusKm = prefs.homeRadiusKm
-                            ) { isOutside, locDesc, _ ->
-                                isVerifyingTravel = false
-                                if (isOutside) {
-                                    prefs.lastTravelLocationName = locDesc
-                                    prefs.lastTravelConfirmationTimeMs = System.currentTimeMillis()
-                                    ScheduleManager.scheduleTravelModeCheck(context, System.currentTimeMillis() + 2 * 60 * 60 * 1000L)
-                                    verificationResult = "Verified Outside Home: $locDesc"
-                                } else {
-                                    prefs.lastTravelLocationName = locDesc
-                                    prefs.lastTravelConfirmationTimeMs = 0L // Revoke confirmation
-                                    verificationResult = if (locDesc.contains("Permission") || locDesc.contains("Disabled") || locDesc.contains("Timeout") || locDesc.contains("Error")) {
-                                        "Error: $locDesc"
-                                    } else {
-                                        "Travel Mode denied: You are inside your home radius ($locDesc)."
-                                    }
+                }
+            } else {
+                if (isVerifyingTravel) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LavenderPrimary, strokeWidth = 2.dp)
+                        Text("Verifying location & distance from home...", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
+                    }
+
+                    LaunchedEffect(Unit) {
+                        if (!prefs.isHomeLocationSet) {
+                            isVerifyingTravel = false
+                            travelMessageDialogTitle = "Home Location Required"
+                            travelMessageDialogText = "Please set your permanent home location above first before starting Travel Mode."
+                            return@LaunchedEffect
+                        }
+
+                        if (LocationVerificationHelper.isVpnActive(context)) {
+                            isVerifyingTravel = false
+                            travelMessageDialogTitle = "VPN Detected"
+                            travelMessageDialogText = "VPN detected. Turn off your VPN and verify your current device location to continue."
+                            return@LaunchedEffect
+                        }
+
+                        LocationVerificationHelper.getCurrentLocationFix(context) { location, statusMsg ->
+                            isVerifyingTravel = false
+                            if (location == null) {
+                                travelMessageDialogTitle = "Location Verification Failed"
+                                travelMessageDialogText = "Could not obtain accurate location fix: $statusMsg"
+                                return@getCurrentLocationFix
+                            }
+
+                            if (LocationVerificationHelper.isLocationMocked(location)) {
+                                travelMessageDialogTitle = "Mocked Location Detected"
+                                travelMessageDialogText = "Mocked location detected. Please disable location spoofing apps to proceed."
+                                return@getCurrentLocationFix
+                            }
+
+                            val distanceMeters = LocationVerificationHelper.calculateDistanceMeters(
+                                location.latitude, location.longitude,
+                                prefs.homeLatitude, prefs.homeLongitude
+                            )
+
+                            val distanceKm = distanceMeters / 1000.0
+                            val placeName = LocationVerificationHelper.getGeocodedAddressName(context, location.latitude, location.longitude)
+
+                            when (LocationVerificationHelper.evaluateTravelEligibility(distanceMeters)) {
+                                TravelEligibility.INELIGIBLE_TOO_CLOSE -> {
+                                    travelMessageDialogTitle = "Ineligible for Travel Mode"
+                                    travelMessageDialogText = "You are currently ${String.format(Locale.getDefault(), "%.2f", distanceKm)} km from your saved home location (less than 2 km). Neither Local Travel Mode nor Travel Mode can be started when at or near home."
+                                }
+                                TravelEligibility.LOCAL_TRAVEL -> {
+                                    pendingTravelActivationMode = "LOCAL"
+                                    pendingTravelActivationDetails = "Eligible Mode: Local Travel Mode\nDistance from Home: ${String.format(Locale.getDefault(), "%.1f", distanceKm)} km\nLocation: $placeName\n\nStudy Mode restrictions and App Limits will be suspended while traveling."
+                                }
+                                TravelEligibility.REGULAR_TRAVEL -> {
+                                    pendingTravelActivationMode = "REGULAR"
+                                    pendingTravelActivationDetails = "Eligible Mode: Travel Mode\nDistance from Home: ${String.format(Locale.getDefault(), "%.1f", distanceKm)} km\nLocation: $placeName\n\nStudy Mode restrictions and App Limits will be suspended while traveling."
                                 }
                             }
                         }
-                    } else {
-                        Button(
-                            onClick = { isVerifyingTravel = true; verificationResult = null },
-                            colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent.copy(alpha = 0.2f), contentColor = PurpleAccent),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(if (isConfirmed) "Refresh" else "Verify Location", fontWeight = FontWeight.Bold)
-                        }
+                    }
+                } else {
+                    Button(
+                        onClick = { isVerifyingTravel = true },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = LavenderPrimary, contentColor = TextWhite),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("🚀 Verify Location & Start Travel Mode", fontWeight = FontWeight.Bold)
                     }
                 }
             }
+        }
 
-            if (verificationResult != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = verificationResult!!,
-                    color = if (verificationResult!!.startsWith("Verified")) LimeAccent else PinkAccent,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
+        // Travel Mode Activation Confirmation Dialog
+        if (pendingTravelActivationMode != null) {
+            AlertDialog(
+                onDismissRequest = { pendingTravelActivationMode = null },
+                title = {
+                    Text(
+                        text = if (pendingTravelActivationMode == "LOCAL") "Start Local Travel Mode?" else "Start Travel Mode?",
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                },
+                text = {
+                    Text(
+                        text = pendingTravelActivationDetails ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextWhite
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val mode = pendingTravelActivationMode!!
+                            prefs.activeTravelMode = mode
+                            prefs.travelModeStartTimeMs = System.currentTimeMillis()
+                            prefs.lastTravelConfirmationTimeMs = System.currentTimeMillis()
+                            prefs.nextLocationCheckTimeMs = System.currentTimeMillis() + 2 * 60 * 60 * 1000L
+                            
+                            ScheduleManager.scheduleTravelModeCheck(context, prefs.nextLocationCheckTimeMs)
+                            activeTravelMode = mode
+                            pendingTravelActivationMode = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = LimeAccent, contentColor = Color(0xFF090C15)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Confirm & Activate", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { pendingTravelActivationMode = null },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+                containerColor = NavyCardInner,
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+
+        // Travel Mode Information / Error Message Dialog
+        if (travelMessageDialogTitle != null) {
+            AlertDialog(
+                onDismissRequest = { travelMessageDialogTitle = null; travelMessageDialogText = null },
+                title = {
+                    Text(travelMessageDialogTitle!!, fontWeight = FontWeight.Bold, color = TextWhite)
+                },
+                text = {
+                    Text(travelMessageDialogText ?: "", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { travelMessageDialogTitle = null; travelMessageDialogText = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = LavenderPrimary, contentColor = TextWhite),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("OK", fontWeight = FontWeight.Bold)
+                    }
+                },
+                containerColor = NavyCardInner,
+                shape = RoundedCornerShape(16.dp)
+            )
         }
 
         // About Card

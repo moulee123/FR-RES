@@ -43,10 +43,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.example.focuscontrol.FocusPreferences
+import com.example.focuscontrol.ScheduleManager
 import com.example.focuscontrol.model.AppInfo
 import com.example.focuscontrol.model.StudySchedule
 import com.example.focuscontrol.ui.components.AppCard
 import java.util.Calendar
+import java.util.Locale
 import com.example.focuscontrol.ui.components.LogoWordmark
 import com.example.focuscontrol.ui.components.SectionEyebrow
 import com.example.focuscontrol.ui.theme.BlueAccent
@@ -62,6 +64,9 @@ import com.example.focuscontrol.ui.theme.TextMuted
 import com.example.focuscontrol.ui.theme.TextWhite
 import com.example.focuscontrol.ui.theme.WarningGold
 
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Checkbox
@@ -69,6 +74,8 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+
+import androidx.compose.foundation.layout.statusBarsPadding
 
 @Composable
 fun HomeScreen(
@@ -101,7 +108,7 @@ fun HomeScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 16.dp, bottom = 100.dp),
+            .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // Header
@@ -205,17 +212,15 @@ fun HomeScreen(
             }
         }
 
-        // Travel Mode Confirmation Overdue Warning Card
+        // Active Travel Mode Status Banner Card
         val prefs = remember { FocusPreferences(context) }
-        val isTravelModeOverdue = remember(prefs.isTravelModeEnabled, prefs.lastTravelConfirmationTimeMs) {
-            prefs.isTravelConfirmationOverdue()
-        }
+        var isTravelActive by remember { mutableStateOf(prefs.isTravelModeActive()) }
 
-        if (isTravelModeOverdue) {
+        if (isTravelActive) {
             AppCard(
-                borderBrush = Brush.linearGradient(listOf(WarningGold, PinkAccent))
+                borderBrush = Brush.linearGradient(listOf(LimeAccent, LavenderPrimary))
             ) {
-                SectionEyebrow("TRAVEL MODE • OVERDUE CONFIRMATION")
+                SectionEyebrow(if (prefs.isLocalTravelModeActive()) "LOCAL TRAVEL MODE ACTIVE ✈️" else "TRAVEL MODE ACTIVE ✈️")
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -223,7 +228,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Location Verification Overdue",
+                        text = "Travel Mode Active",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
@@ -231,35 +236,45 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .background(WarningGold.copy(alpha = 0.2f))
+                            .background(LimeAccent.copy(alpha = 0.2f))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("OVERDUE", style = MaterialTheme.typography.labelSmall, color = WarningGold, fontWeight = FontWeight.Bold)
+                        Text("ACTIVE", style = MaterialTheme.typography.labelSmall, color = LimeAccent, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(Modifier.height(6.dp))
+                val timeRemaining = run {
+                    val remainingMs = maxOf(0L, prefs.nextLocationCheckTimeMs - System.currentTimeMillis())
+                    val hours = remainingMs / (60 * 60 * 1000L)
+                    val mins = (remainingMs / (60 * 1000L)) % 60
+                    if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                }
                 Text(
-                    text = "Your 2-hour location confirmation for Travel Mode has expired. Verify your location to confirm travel outside ${prefs.homeLocationName} and maintain travel allowance.",
+                    text = "Study Mode and App Limits are suspended while traveling. Verified: ${prefs.lastTravelLocationName}. Next 2-hour check in $timeRemaining.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextMuted
                 )
                 Spacer(Modifier.height(14.dp))
                 Button(
-                    onClick = { onNavigateToSettings() },
+                    onClick = {
+                        prefs.stopTravelMode()
+                        ScheduleManager.rescheduleAll(context, prefs.studySchedules)
+                        isTravelActive = false
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .background(
-                            Brush.horizontalGradient(listOf(WarningGold, LavenderPrimary)),
+                            Brush.horizontalGradient(listOf(PinkAccent, LavenderPrimary)),
                             RoundedCornerShape(14.dp)
                         ),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.Transparent,
-                        contentColor = Color(0xFF090C15)
+                        contentColor = TextWhite
                     ),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("📍 Verify Location in Settings", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("End Travel Mode", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
@@ -474,72 +489,93 @@ fun HomeScreen(
                     val endM = endCal.get(Calendar.MINUTE).toString().padStart(2, '0')
                     val endAmPm = if (endCal.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
                     
-                    val daysStr = nextSchedule.weekdays.joinToString(", ")
-                    val formattedTimeRange = "$startH:$startM $startAmPm – $endH:$endM $endAmPm • $daysStr"
+                    val daysStr = nextSchedule.weekdays.joinToString(" · ")
+                    val formattedTimeRange = "$startH:$startM $startAmPm – $endH:$endM $endAmPm"
 
                     val timeToMs = nextStartMs - nowMs
                     val hours = timeToMs / (1000 * 60 * 60)
                     val mins = (timeToMs / (1000 * 60)) % 60
                     val timeStr = if (timeToMs < 0) "Active" else if (hours > 0) "In ${hours}h ${mins}m" else "In ${mins}m"
 
-                    Triple(nextSchedule.name, formattedTimeRange, timeStr)
+                    listOf(nextSchedule.name, formattedTimeRange, daysStr, timeStr)
                 } else {
                     null
                 }
             }
 
             if (nextScheduleInfo != null) {
-                val (schedName, timeRangeText, countdownText) = nextScheduleInfo
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                val schedName = nextScheduleInfo[0]
+                val timeRangeText = nextScheduleInfo[1]
+                val daysText = nextScheduleInfo[2]
+                val countdownText = nextScheduleInfo[3]
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SectionEyebrow("UPCOMING SCHEDULE")
+                    Spacer(Modifier.height(10.dp))
+
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(BlueAccent.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("⏰", style = MaterialTheme.typography.titleLarge)
+                            }
+
+                            Spacer(Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = schedName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = timeRangeText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LavenderPrimary
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = daysText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(BlueAccent.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(BlueAccent.copy(alpha = 0.18f))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Text("⏰", style = MaterialTheme.typography.titleLarge)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            SectionEyebrow("UPCOMING SCHEDULE")
-                            Spacer(Modifier.height(2.dp))
                             Text(
-                                text = schedName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = timeRangeText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextMuted
+                                text = countdownText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = BlueAccent,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                    }
-                    
-                    Spacer(Modifier.width(12.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(BlueAccent.copy(alpha = 0.18f))
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = countdownText,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = BlueAccent,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
             } else {
@@ -709,6 +745,9 @@ fun BlockedAppsSelector(
     onBack: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
     val filteredApps = remember(searchQuery, installedApps) {
         installedApps.filter { app ->
             searchQuery.isBlank() ||
@@ -720,10 +759,12 @@ fun BlockedAppsSelector(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Header Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -739,108 +780,237 @@ fun BlockedAppsSelector(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(NavyCardInner)
-                .padding(12.dp)
-        ) {
-            Text(
-                text = "Apps selected below are strictly blocked when Study Mode is ON. Unselected apps remain accessible during study sessions.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextMuted
-            )
+        // Explanatory Information Card matching App Limits tab
+        AppCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("ℹ️", fontSize = 18.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "Apps selected below are strictly blocked when Study Mode is ON. Unselected apps remain accessible during study sessions.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextMuted
+                )
+            }
         }
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Search installed apps...", color = TextDimmed) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextWhite,
-                unfocusedTextColor = TextWhite,
-                focusedBorderColor = LavenderPrimary,
-                unfocusedBorderColor = NavyCardBorder,
-                focusedContainerColor = NavyCardInner,
-                unfocusedContainerColor = NavyCardInner
-            )
-        )
+        // Dedicated SELECTED APPS (N) Section (Matching App Limits Configured Rules Card)
+        val selectedAppsList = remember(blockedPackages, installedApps) {
+            installedApps.filter { blockedPackages.contains(it.packageName) }
+                .sortedBy { it.appName.lowercase(Locale.ROOT) }
+        }
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(filteredApps, key = { it.packageName }) { app ->
-                val isBlocked = blockedPackages.contains(app.packageName)
-                Row(
+        AppCard {
+            SectionEyebrow("SELECTED APPS (${selectedAppsList.size})")
+
+            Spacer(Modifier.height(10.dp))
+
+            if (selectedAppsList.isEmpty()) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(NavyCardInner)
-                        .clickable { onToggleBlockedApp(app.packageName, !isBlocked) }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(14.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    if (app.icon != null) {
-                        Image(
-                            bitmap = app.icon,
-                            contentDescription = app.appName,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No apps selected",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
                         )
-                    } else {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "Select apps below to block them during Study Mode.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted
+                        )
+                    }
+                }
+            } else {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(selectedAppsList, key = { it.packageName }) { app ->
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(LavenderPrimary.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
+                                .width(150.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(NavyCardInner)
+                                .clickable { onToggleBlockedApp(app.packageName, false) }
+                                .padding(12.dp)
                         ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (app.icon != null) {
+                                        Image(
+                                            bitmap = app.icon,
+                                            contentDescription = app.appName,
+                                            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(LavenderPrimary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(app.appName.take(1).uppercase(), color = LavenderPrimary, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(LavenderPrimary.copy(alpha = 0.2f))
+                                            .clickable { onToggleBlockedApp(app.packageName, false) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("✕", fontSize = 12.sp, color = LavenderPrimary, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Spacer(Modifier.height(8.dp))
+
+                                Text(
+                                    text = app.appName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Spacer(Modifier.height(2.dp))
+
+                                Text(
+                                    text = "Blocked in Session ✓",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LimeAccent
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main All Installed Apps Container Card matching App Limits Section E
+        AppCard {
+            SectionEyebrow("ALL INSTALLED APPS (${filteredApps.size})")
+
+            Spacer(Modifier.height(10.dp))
+
+            // Search Text Field
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search installed apps...", color = TextDimmed) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        Text(
+                            text = "✕",
+                            color = TextMuted,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable {
+                                    searchQuery = ""
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                                .padding(8.dp)
+                        )
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextWhite,
+                    unfocusedTextColor = TextWhite,
+                    focusedBorderColor = LavenderPrimary,
+                    unfocusedBorderColor = NavyCardBorder,
+                    focusedContainerColor = NavyCardInner,
+                    unfocusedContainerColor = NavyCardInner
+                )
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            if (filteredApps.isEmpty()) {
+                Text(
+                    text = "No apps match the search query.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextMuted
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    filteredApps.forEach { app ->
+                        val isBlocked = blockedPackages.contains(app.packageName)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NavyCardInner)
+                                .clickable { onToggleBlockedApp(app.packageName, !isBlocked) }
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (app.icon != null) {
+                                Image(
+                                    bitmap = app.icon,
+                                    contentDescription = app.appName,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(LavenderPrimary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = app.appName.take(1).uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        color = LavenderPrimary
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.width(12.dp))
+
                             Text(
-                                text = app.appName.take(1).uppercase(),
+                                text = app.appName,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = LavenderPrimary
+                                color = TextWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            Checkbox(
+                                checked = isBlocked,
+                                onCheckedChange = { onToggleBlockedApp(app.packageName, it) },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = LavenderPrimary,
+                                    checkmarkColor = Color(0xFF090C15),
+                                    uncheckedColor = TextDimmed
+                                )
                             )
                         }
                     }
-
-                    Spacer(Modifier.width(12.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = app.appName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextWhite,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = app.packageName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextDimmed,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Checkbox(
-                        checked = isBlocked,
-                        onCheckedChange = { onToggleBlockedApp(app.packageName, it) },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = LavenderPrimary,
-                            checkmarkColor = Color(0xFF090C15),
-                            uncheckedColor = TextDimmed
-                        )
-                    )
                 }
             }
         }

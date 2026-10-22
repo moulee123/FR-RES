@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.FocusControl" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_window_background</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+
+        <!-- Android 12+ (API 31+) Splash Screen System attributes -->
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+    </style>
+
+</resources>

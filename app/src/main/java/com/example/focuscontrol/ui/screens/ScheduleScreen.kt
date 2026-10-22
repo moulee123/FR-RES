@@ -47,6 +47,7 @@ import com.example.focuscontrol.ui.theme.PinkAccent
 import com.example.focuscontrol.ui.theme.PurpleAccent
 import com.example.focuscontrol.ui.theme.TextDimmed
 import com.example.focuscontrol.ui.theme.TextMuted
+import androidx.compose.foundation.layout.statusBarsPadding
 import com.example.focuscontrol.ui.theme.TextWhite
 
 @Composable
@@ -64,7 +65,7 @@ fun ScheduleScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 16.dp, bottom = 100.dp),
+            .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Header

@@ -49,6 +49,8 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
+import androidx.compose.foundation.layout.statusBarsPadding
+
 @Composable
 fun PlannerHomeScreen(
     plannerPrefs: PlannerPreferences,
@@ -79,11 +81,11 @@ fun PlannerHomeScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 16.dp, bottom = 100.dp),
+            .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Header
-        LogoWordmark(subtitle = "Project Planner & AI Notes")
+        LogoWordmark(subtitle = "Study Planner")
 
         // Progress Card
         AppCard {

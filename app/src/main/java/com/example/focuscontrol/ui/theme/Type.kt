@@ -6,104 +6,99 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-import androidx.compose.ui.text.font.Font
-import com.example.focuscontrol.R
+// App-wide Typography using Android system Roboto (FontFamily.SansSerif)
+val RobotoFontFamily = FontFamily.SansSerif
 
-// Using dotgothic as the closest available dot-matrix font in the project
-// Note: Official NDot 55 is not available in the project files.
-val DotMatrixFontFamily = FontFamily(
-    Font(R.font.dotgothic, FontWeight.Normal),
-)
-
-val PixelDigitalFontFamily = DotMatrixFontFamily
-val DigitalClockFontFamily = DotMatrixFontFamily
+val DotMatrixFontFamily = RobotoFontFamily
+val PixelDigitalFontFamily = RobotoFontFamily
+val DigitalClockFontFamily = RobotoFontFamily
 
 val LogoPixelTextStyle = TextStyle(
-    fontFamily = PixelDigitalFontFamily,
+    fontFamily = RobotoFontFamily,
     fontWeight = FontWeight.Bold,
-    fontSize = 22.sp,
-    lineHeight = 28.sp,
+    fontSize = 20.sp,
+    lineHeight = 24.sp,
     letterSpacing = 1.sp,
 )
 
 val DigitalTimerLargeStyle = TextStyle(
-    fontFamily = DigitalClockFontFamily,
-    fontWeight = FontWeight.Normal,
-    fontSize = 54.sp,
-    lineHeight = 60.sp,
-    letterSpacing = 2.sp
+    fontFamily = RobotoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 52.sp,
+    lineHeight = 58.sp,
+    letterSpacing = 1.sp
 )
 
 val DigitalTimerMediumStyle = TextStyle(
-    fontFamily = DigitalClockFontFamily,
-    fontWeight = FontWeight.Normal,
+    fontFamily = RobotoFontFamily,
+    fontWeight = FontWeight.Bold,
     fontSize = 32.sp,
     lineHeight = 38.sp,
-    letterSpacing = 1.5.sp,
+    letterSpacing = 1.sp,
 )
 
 val Typography = Typography(
     headlineLarge = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 32.sp,
         lineHeight = 38.sp,
         letterSpacing = (-0.5).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 24.sp,
         lineHeight = 30.sp,
         letterSpacing = (-0.2).sp
     ),
     titleLarge = TextStyle(
-        fontFamily = DotMatrixFontFamily,
-        fontWeight = FontWeight.SemiBold,
+        fontFamily = RobotoFontFamily,
+        fontWeight = FontWeight.Bold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
         letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp,
         letterSpacing = 0.15.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.5.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.25.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = 0.25.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = DotMatrixFontFamily,
+        fontFamily = RobotoFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.8.sp
+        letterSpacing = 0.5.sp
     )
 )

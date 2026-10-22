@@ -15,7 +15,10 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.focuscontrol.model.StudySchedule
+import com.example.focuscontrol.utils.LocationVerificationHelper
+import android.location.Location
 import java.util.Calendar
+import java.util.Locale
 
 data class ActiveScheduleInfo(
     val isStudyActive: Boolean,
@@ -31,6 +34,8 @@ class ScheduleReceiver : BroadcastReceiver() {
         const val TAG = "FRERES_BREAK_DEBUG"
         const val ACTION_EXTEND_STUDY = "com.example.focuscontrol.ACTION_EXTEND_STUDY"
         const val ACTION_START_BREAK = "com.example.focuscontrol.ACTION_START_BREAK"
+        const val ACTION_START_STUDYING = "com.example.focuscontrol.ACTION_START_STUDYING"
+        const val ACTION_END_STUDY_MODE = "com.example.focuscontrol.ACTION_END_STUDY_MODE"
         const val ACTION_CHECK_TRAVEL_MODE = "com.example.focuscontrol.ACTION_CHECK_TRAVEL_MODE"
         const val EXTRA_BREAK_MINS = "extra_break_mins"
 
@@ -132,6 +137,26 @@ class ScheduleReceiver : BroadcastReceiver() {
             return
         }
 
+        if (action == ACTION_START_STUDYING) {
+            Log.d(TAG, "ScheduleReceiver: Handling ACTION_START_STUDYING")
+            prefs.endStudyModeBreak()
+            prefs.isStudyModeEnabled = true
+            ScheduleManager.rescheduleAll(context, prefs.studySchedules)
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(2002)
+            return
+        }
+
+        if (action == ACTION_END_STUDY_MODE) {
+            Log.d(TAG, "ScheduleReceiver: Handling ACTION_END_STUDY_MODE")
+            prefs.endStudyModeBreak()
+            prefs.isStudyModeEnabled = false
+            ScheduleManager.rescheduleAll(context, prefs.studySchedules)
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(2002)
+            return
+        }
+
         val now = System.currentTimeMillis()
 
         // Handle Boot Completed / System Restart with 5-minute post-boot grace period
@@ -139,7 +164,6 @@ class ScheduleReceiver : BroadcastReceiver() {
             Log.d(TAG, "ScheduleReceiver: Boot/Package Replaced event received. Evaluating post-boot grace period.")
             if (prefs.isTravelModeEnabled) {
                 if (prefs.isTravelConfirmationOverdue()) {
-                    // Apply 5-minute post-boot grace period before issuing overdue alert
                     Log.d(TAG, "ScheduleReceiver: Travel Mode confirmation overdue post-boot. Applying 5-minute grace period.")
                     ScheduleManager.scheduleTravelModeCheck(context, now + 5 * 60 * 1000L)
                 } else {
@@ -150,36 +174,130 @@ class ScheduleReceiver : BroadcastReceiver() {
             }
         }
 
-        // Handle Travel Mode 2-Hour Confirmation Check Alarm
+        // Handle Travel Mode 2-Hour Confirmation Check Alarm (Part 4 & Part 5)
         if (action == ACTION_CHECK_TRAVEL_MODE) {
-            val isOverdue = prefs.isTravelConfirmationOverdue()
-            Log.d(TAG, "ScheduleReceiver: Travel Mode Check Alarm fired. Overdue: $isOverdue")
+            if (!prefs.isTravelModeActive() || !prefs.isHomeVerified) {
+                return
+            }
 
-            if (isOverdue && prefs.isTravelModeEnabled) {
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            Log.d(TAG, "ScheduleReceiver: Travel Mode Check Alarm fired. Executing background location verification.")
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            if (LocationVerificationHelper.isVpnActive(context)) {
                 val alertIntent = Intent(context, MainActivity::class.java)
                 val alertPendingIntent = PendingIntent.getActivity(
                     context, 5002, alertIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
                 val alertBuilder = NotificationCompat.Builder(context, "freres_break_reminder_v2")
                     .setSmallIcon(R.drawable.ic_dialog_alert)
-                    .setContentTitle("Travel Mode Confirmation Overdue 📍")
-                    .setContentText("Your 2-hour location verification for Travel Mode has expired. Tap to verify.")
+                    .setContentTitle("VPN Detected 📍")
+                    .setContentText("VPN detected. Turn off your VPN and verify your current device location to continue.")
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                    .setSound(defaultSoundUri)
-                    .setDefaults(NotificationCompat.DEFAULT_ALL)
                     .setAutoCancel(true)
                     .setContentIntent(alertPendingIntent)
 
                 notificationManager.notify(5003, alertBuilder.build())
-                Log.d(TAG, "ScheduleReceiver: Posted Travel Mode Overdue alert notification 5003")
+                ScheduleManager.scheduleTravelModeCheck(context, now + 15 * 60 * 1000L)
+                return
+            }
+
+            LocationVerificationHelper.getCurrentLocationFix(context) { location: Location?, statusMsg: String ->
+                if (location == null) {
+                    val alertIntent = Intent(context, MainActivity::class.java)
+                    val alertPendingIntent = PendingIntent.getActivity(
+                        context, 5002, alertIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val alertBuilder = NotificationCompat.Builder(context, "freres_break_reminder_v2")
+                        .setSmallIcon(R.drawable.ic_dialog_alert)
+                        .setContentTitle("Travel Check Needed 📍")
+                        .setContentText("Open FRÈRES to complete location verification ($statusMsg).")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true)
+                        .setContentIntent(alertPendingIntent)
+
+                    notificationManager.notify(5003, alertBuilder.build())
+                    ScheduleManager.scheduleTravelModeCheck(context, now + 15 * 60 * 1000L)
+                    return@getCurrentLocationFix
+                }
+
+                if (LocationVerificationHelper.isLocationMocked(location)) {
+                    val alertIntent = Intent(context, MainActivity::class.java)
+                    val alertPendingIntent = PendingIntent.getActivity(
+                        context, 5002, alertIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val alertBuilder = NotificationCompat.Builder(context, "freres_break_reminder_v2")
+                        .setSmallIcon(R.drawable.ic_dialog_alert)
+                        .setContentTitle("Mocked Location Detected 📍")
+                        .setContentText("Mocked location detected. Please disable location spoofing apps to proceed.")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true)
+                        .setContentIntent(alertPendingIntent)
+
+                    notificationManager.notify(5003, alertBuilder.build())
+                    return@getCurrentLocationFix
+                }
+
+                val distanceMeters = LocationVerificationHelper.calculateDistanceMeters(
+                    location.latitude, location.longitude,
+                    prefs.homeLatitude, prefs.homeLongitude
+                )
+
+                if (distanceMeters <= LocationVerificationHelper.HOME_ARRIVAL_RADIUS_METERS) {
+                    // Part 4: Home Arrival Detected!
+                    prefs.stopTravelMode()
+                    ScheduleManager.rescheduleAll(context, prefs.studySchedules)
+
+                    val alertIntent = Intent(context, MainActivity::class.java)
+                    val alertPendingIntent = PendingIntent.getActivity(
+                        context, 5002, alertIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val alertBuilder = NotificationCompat.Builder(context, "freres_break_reminder_v2")
+                        .setSmallIcon(R.drawable.ic_dialog_alert)
+                        .setContentTitle("Welcome Home! 🏠")
+                        .setContentText("You are within 200m of home. Travel Mode has automatically ended and normal rules are restored.")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true)
+                        .setContentIntent(alertPendingIntent)
+
+                    notificationManager.notify(5003, alertBuilder.build())
+                    Log.d(TAG, "ScheduleReceiver: Reached home ($distanceMeters m <= 200m). Travel Mode ended automatically.")
+                } else {
+                    // Part 4: Still Away From Home!
+                    val distKm = distanceMeters / 1000.0
+                    val placeName = LocationVerificationHelper.getGeocodedAddressName(context, location.latitude, location.longitude)
+                    val locDesc = "$placeName (${String.format(Locale.getDefault(), "%.1f", distKm)} km from home)"
+
+                    prefs.lastTravelLocationName = locDesc
+                    prefs.lastTravelConfirmationTimeMs = System.currentTimeMillis()
+                    prefs.nextLocationCheckTimeMs = System.currentTimeMillis() + 2 * 60 * 60 * 1000L
+
+                    ScheduleManager.scheduleTravelModeCheck(context, prefs.nextLocationCheckTimeMs)
+
+                    val alertIntent = Intent(context, MainActivity::class.java)
+                    val alertPendingIntent = PendingIntent.getActivity(
+                        context, 5002, alertIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val alertBuilder = NotificationCompat.Builder(context, "freres_break_reminder_v2")
+                        .setSmallIcon(R.drawable.ic_dialog_alert)
+                        .setContentTitle("Travel Location Verified 📍")
+                        .setContentText("Verified ${String.format(Locale.getDefault(), "%.1f", distKm)} km from home. ${prefs.activeTravelMode} Mode remains active.")
+                        .setPriority(NotificationCompat.PRIORITY_LOW)
+                        .setAutoCancel(true)
+                        .setContentIntent(alertPendingIntent)
+
+                    notificationManager.notify(5003, alertBuilder.build())
+                    Log.d(TAG, "ScheduleReceiver: Periodic location check verified $distKm km from home. Next check scheduled in 2 hours.")
+                }
             }
             return
         }
+
         val scheduleInfo = evaluateActiveScheduleInfo(context, prefs.studySchedules, now)
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -213,6 +331,12 @@ class ScheduleReceiver : BroadcastReceiver() {
             context, 0, activityIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val breakJustEnded = prefs.studyModeBreakEndTimeMs > 0L && now >= prefs.studyModeBreakEndTimeMs
+        if (breakJustEnded) {
+            Log.d(TAG, "ScheduleReceiver: Break timer expired! Clearing break state.")
+            prefs.endStudyModeBreak()
+        }
+
         if (scheduleInfo.isStudyActive) {
             prefs.isStudyModeEnabled = true
             FocusBlockerService.triggerImmediateCheck()
@@ -221,8 +345,17 @@ class ScheduleReceiver : BroadcastReceiver() {
             val userHasNotStartedBreakYet = prefs.studyModeBreakEndTimeMs < now
             val isAtBreakTransition = timeRemainingMs in -180_000L..120_000L
 
-            if (isAtBreakTransition && userHasNotStartedBreakYet) {
-                Log.d(TAG, "ScheduleReceiver: Study-end transition entered! Time remaining: ${timeRemainingMs}ms")
+            val isStudyEndedState = isAtBreakTransition && userHasNotStartedBreakYet
+            val isBreakEndedState = breakJustEnded
+
+            if (isStudyEndedState || isBreakEndedState) {
+                val screenType = if (isBreakEndedState) {
+                    ReadOnlyLockScreenActivity.SCREEN_TYPE_BREAK_ENDED
+                } else {
+                    ReadOnlyLockScreenActivity.SCREEN_TYPE_STUDY_ENDED
+                }
+
+                Log.d(TAG, "ScheduleReceiver: Reminder transition entered! ScreenType: $screenType")
                 prefs.lastBreakNotificationTimeMs = now
 
                 // 1. Physically wake up device screen using PowerManager WakeLock
@@ -244,53 +377,74 @@ class ScheduleReceiver : BroadcastReceiver() {
                     putExtra(ReadOnlyLockScreenActivity.EXTRA_STUDY_END_MS, scheduleInfo.currentStudyEndMs)
                     putExtra(ReadOnlyLockScreenActivity.EXTRA_BLOCKED_COUNT, scheduleInfo.blockedAppCount)
                     putExtra(ReadOnlyLockScreenActivity.EXTRA_BREAK_MINS, scheduleInfo.currentBreakDurationMins)
+                    putExtra(ReadOnlyLockScreenActivity.EXTRA_SCREEN_TYPE, screenType)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 }
                 val lockScreenPendingIntent = PendingIntent.getActivity(
                     context, 2001, lockScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val extendIntent = Intent(context, ScheduleReceiver::class.java).apply {
-                    this.action = ACTION_EXTEND_STUDY
-                }
-                val extendPendingIntent = PendingIntent.getBroadcast(
-                    context, 3001, extendIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
-                val breakIntent = Intent(context, ScheduleReceiver::class.java).apply {
-                    this.action = ACTION_START_BREAK
-                    putExtra(EXTRA_BREAK_MINS, scheduleInfo.currentBreakDurationMins)
-                }
-                val breakPendingIntent = PendingIntent.getBroadcast(
-                    context, 3002, breakIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
                 val builder = NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_dialog_alert)
-                    .setContentTitle("Study Interval Ended • Break Due")
-                    .setContentText("Tap an action below or unlock to choose.")
                     .setPriority(NotificationCompat.PRIORITY_MAX)
                     .setCategory(NotificationCompat.CATEGORY_ALARM)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
-                    .addAction(0, "+5m Study Extension", extendPendingIntent)
-                    .addAction(0, "Start My Break", breakPendingIntent)
+
+                if (isBreakEndedState) {
+                    val startStudyingIntent = Intent(context, ScheduleReceiver::class.java).apply {
+                        this.action = ACTION_START_STUDYING
+                    }
+                    val startStudyingPendingIntent = PendingIntent.getBroadcast(
+                        context, 3003, startStudyingIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val endStudyIntent = Intent(context, ScheduleReceiver::class.java).apply {
+                        this.action = ACTION_END_STUDY_MODE
+                    }
+                    val endStudyPendingIntent = PendingIntent.getBroadcast(
+                        context, 3004, endStudyIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    builder.setContentTitle("Break Time Ended • Ready to Focus?")
+                        .setContentText("A short break keeps you focused for longer.")
+                        .addAction(0, "Start Studying", startStudyingPendingIntent)
+                        .addAction(0, "End Study Mode", endStudyPendingIntent)
+                } else {
+                    val extendIntent = Intent(context, ScheduleReceiver::class.java).apply {
+                        this.action = ACTION_EXTEND_STUDY
+                    }
+                    val extendPendingIntent = PendingIntent.getBroadcast(
+                        context, 3001, extendIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    val breakIntent = Intent(context, ScheduleReceiver::class.java).apply {
+                        this.action = ACTION_START_BREAK
+                        putExtra(EXTRA_BREAK_MINS, scheduleInfo.currentBreakDurationMins)
+                    }
+                    val breakPendingIntent = PendingIntent.getBroadcast(
+                        context, 3002, breakIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    builder.setContentTitle("Study Interval Ended • Break Due")
+                        .setContentText("A short break keeps you focused for longer.")
+                        .addAction(0, "+5m Study Extension", extendPendingIntent)
+                        .addAction(0, "Start My Break", breakPendingIntent)
+                }
 
                 val canUseFullScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     notificationManager.canUseFullScreenIntent()
                 } else {
                     true
                 }
-                Log.d(TAG, "ScheduleReceiver: fullScreenIntent allowed? $canUseFullScreen, Channel: $channelId, Importance: ${NotificationManager.IMPORTANCE_HIGH}")
 
                 if (canUseFullScreen) {
                     prefs.lastFullScreenAttemptTimeMs = now
                     builder.setFullScreenIntent(lockScreenPendingIntent, true)
-                    Log.d(TAG, "ScheduleReceiver: Attached fullScreenIntent targeting ReadOnlyLockScreenActivity")
+                    Log.d(TAG, "ScheduleReceiver: Attached fullScreenIntent targeting ReadOnlyLockScreenActivity ($screenType)")
                 }
 
-                // If "Appear on Top" (SYSTEM_ALERT_WINDOW) is granted, also launch Activity directly over active app
                 if (Settings.canDrawOverlays(context)) {
                     try {
                         context.startActivity(lockScreenIntent)
@@ -301,7 +455,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 }
 
                 notificationManager.notify(2002, builder.build())
-                Log.d(TAG, "ScheduleReceiver: Break notification ID 2002 posted successfully!")
+                Log.d(TAG, "ScheduleReceiver: Reminder notification ID 2002 posted successfully!")
             } else if (scheduleInfo.isBreakActive && !userHasNotStartedBreakYet) {
                 val builder = NotificationCompat.Builder(context, "focus_channel")
                     .setSmallIcon(R.drawable.ic_dialog_info)

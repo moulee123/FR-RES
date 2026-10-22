@@ -95,8 +95,12 @@ class FocusPreferences(context: Context) {
 
     // Home Location Preferences
     var isHomeVerified: Boolean
-        get() = prefs.getBoolean("home_location_verified", false)
+        get() = isHomeLocationSet || prefs.getBoolean("home_location_verified", false)
         set(value) = prefs.edit { putBoolean("home_location_verified", value) }
+
+    // Permanent Home Location Preferences (Part 1)
+    val isHomeLocationSet: Boolean
+        get() = prefs.getBoolean("is_home_location_set", false) || prefs.getBoolean("home_location_verified", false)
 
     var homeLatitude: Double
         get() = Double.fromBits(prefs.getLong("home_latitude_bits", 0L))
@@ -106,13 +110,6 @@ class FocusPreferences(context: Context) {
         get() = Double.fromBits(prefs.getLong("home_longitude_bits", 0L))
         set(value) = prefs.edit { putLong("home_longitude_bits", value.toBits()) }
 
-    var homeRadiusKm: Double
-        get() {
-            val r = Double.fromBits(prefs.getLong("home_radius_km_bits", 0L))
-            return if (r <= 0.0) 30.0 else r
-        }
-        set(value) = prefs.edit { putLong("home_radius_km_bits", value.toBits()) }
-
     var homeLocationName: String
         get() = prefs.getString("home_location_name", "Not Set") ?: "Not Set"
         set(value) = prefs.edit { putString("home_location_name", value) }
@@ -121,10 +118,45 @@ class FocusPreferences(context: Context) {
         get() = prefs.getLong("home_verify_timestamp", 0L)
         set(value) = prefs.edit { putLong("home_verify_timestamp", value) }
 
-    // Travel Mode Preferences
+    fun setHomeLocation(lat: Double, lng: Double, name: String) {
+        if (isHomeLocationSet) return // Rule 4: Once saved, home location must not be editable or replaced
+        prefs.edit {
+            putBoolean("is_home_location_set", true)
+            putBoolean("home_location_verified", true)
+            putLong("home_latitude_bits", lat.toBits())
+            putLong("home_longitude_bits", lng.toBits())
+            putString("home_location_name", name)
+            putLong("home_verify_timestamp", System.currentTimeMillis())
+        }
+    }
+
+    // Travel Mode Preferences (Parts 2-6)
+    // activeTravelMode values: "NONE", "LOCAL", "REGULAR"
+    var activeTravelMode: String
+        get() = prefs.getString("active_travel_mode", "NONE") ?: "NONE"
+        set(value) {
+            prefs.edit {
+                putString("active_travel_mode", value)
+                putBoolean("travel_mode_enabled", value != "NONE")
+            }
+        }
+
     var isTravelModeEnabled: Boolean
-        get() = prefs.getBoolean("travel_mode_enabled", false)
-        set(value) = prefs.edit { putBoolean("travel_mode_enabled", value) }
+        get() = activeTravelMode != "NONE" || prefs.getBoolean("travel_mode_enabled", false)
+        set(value) {
+            if (!value) {
+                activeTravelMode = "NONE"
+            }
+            prefs.edit { putBoolean("travel_mode_enabled", value) }
+        }
+
+    var travelModeStartTimeMs: Long
+        get() = prefs.getLong("travel_mode_start_time_ms", 0L)
+        set(value) = prefs.edit { putLong("travel_mode_start_time_ms", value) }
+
+    var nextLocationCheckTimeMs: Long
+        get() = prefs.getLong("next_location_check_time_ms", 0L)
+        set(value) = prefs.edit { putLong("next_location_check_time_ms", value) }
 
     var lastTravelConfirmationTimeMs: Long
         get() = prefs.getLong("last_travel_confirm_time", 0L)
@@ -134,8 +166,21 @@ class FocusPreferences(context: Context) {
         get() = prefs.getString("last_travel_location_name", "Not Verified") ?: "Not Verified"
         set(value) = prefs.edit { putString("last_travel_location_name", value) }
 
+    fun isTravelModeActive(): Boolean = activeTravelMode == "LOCAL" || activeTravelMode == "REGULAR" || isTravelModeEnabled
+    fun isLocalTravelModeActive(): Boolean = activeTravelMode == "LOCAL"
+    fun isRegularTravelModeActive(): Boolean = activeTravelMode == "REGULAR"
+
+    fun stopTravelMode() {
+        activeTravelMode = "NONE"
+        isTravelModeEnabled = false
+        travelModeStartTimeMs = 0L
+        nextLocationCheckTimeMs = 0L
+        lastTravelConfirmationTimeMs = 0L
+        lastTravelLocationName = "Not Verified"
+    }
+
     fun isTravelModeConfirmed(): Boolean {
-        if (!isTravelModeEnabled || !isHomeVerified) return false
+        if (!isTravelModeActive() || !isHomeVerified) return false
         val confirmTime = lastTravelConfirmationTimeMs
         if (confirmTime == 0L) return false
         val timeSinceConfirm = System.currentTimeMillis() - confirmTime
@@ -143,7 +188,7 @@ class FocusPreferences(context: Context) {
     }
 
     fun isTravelConfirmationOverdue(): Boolean {
-        if (!isTravelModeEnabled || !isHomeVerified) return false
+        if (!isTravelModeActive() || !isHomeVerified) return false
         val confirmTime = lastTravelConfirmationTimeMs
         if (confirmTime == 0L) return true
         val timeSinceConfirm = System.currentTimeMillis() - confirmTime

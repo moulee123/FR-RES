@@ -2,8 +2,7 @@ package com.example.focuscontrol.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -24,18 +22,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.focuscontrol.R
 import com.example.focuscontrol.ui.theme.DigitalTimerLargeStyle
-import com.example.focuscontrol.ui.theme.LavenderGradientStart
 import com.example.focuscontrol.ui.theme.LavenderPrimary
 import com.example.focuscontrol.ui.theme.LogoPixelTextStyle
 import com.example.focuscontrol.ui.theme.NavyCard
 import com.example.focuscontrol.ui.theme.NavyCardBorder
-import com.example.focuscontrol.ui.theme.PinkAccent
 import com.example.focuscontrol.ui.theme.TextWhite
 
 @Composable
@@ -47,25 +44,18 @@ fun LogoWordmark(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        Image(
+            painter = painterResource(R.drawable.freres_logo),
+            contentDescription = "FRÈRES Logo",
+            contentScale = ContentScale.Fit,
             modifier = Modifier
-                .padding(end = 10.dp)
+                .padding(end = 12.dp)
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(LavenderGradientStart, PinkAccent)
-                    )
-                ),
-            contentAlignment = Alignment.Center
+        )
+        Column(
+            verticalArrangement = Arrangement.Center
         ) {
-            Image(
-                painter = painterResource(R.drawable.freres_logo),
-                contentDescription = "FRERES Logo",
-                modifier = Modifier.size(40.dp)
-            )
-        }
-        Column {
             Text(
                 text = "FRÈRES",
                 style = LogoPixelTextStyle,
